@@ -1,6 +1,7 @@
 from .utils import *
 from . import rtprofile as rtp
 from . import repcall as rep
+from .estrdrs import seed_numba_rng
 
 
 
@@ -128,6 +129,7 @@ def init_run(_data,
 def infer(job):
      cell, seed = job
      np.random.seed(seed)
+     seed_numba_rng(int(seed))
      return infer_local(cell, _data=data, _seg=seg, _testmethod=testmethod, _meanmethod=meanmethod, _timing=timing,
                         _gmm=gmm, _maxcn=maxcn, _reps=reps, _permutations=permutations, _permethod=permethod,
                         _rdr_profile=rdr_profile, _maxrdr=maxrdr, _maxrtrdr=maxrtrdr, _quantile=quantile,

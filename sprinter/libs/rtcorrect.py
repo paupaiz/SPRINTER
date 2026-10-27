@@ -1,5 +1,5 @@
 from .utils import *
-from .estrdrs import prev_else_next_rdrs
+from .estrdrs import prev_else_next_rdrs, seed_numba_rng
 
 import statsmodels.formula.api as smf
 from sklearn.neighbors import LocalOutlierFactor
@@ -35,6 +35,8 @@ def correct_sphase(rtprofile, annotations, cn_size, gl_size, fastcns=True, visua
 def calc_cn_rdrs(counts, cn_size, gl_size, issphase, fastcns, maxgap=20, min_frac_bins=.1, min_bins=4, visualcn=False, j=1):
     with Manager() as manager:
         shared = manager.list()
+        cells = counts['CELL'].unique()
+        seeds = manager.dict(zip(cells, np.random.randint(0, 2**31 - 1, size=len(cells))))
         with Pool(processes=j, 
                   initializer=init_calc_cn_rdrs, 
                   initargs=(manager.dict({cell : celldf for cell, celldf in counts.groupby('CELL')}),
@@ -47,7 +49,8 @@ def calc_cn_rdrs(counts, cn_size, gl_size, issphase, fastcns, maxgap=20, min_fra
                             min_bins,
                             issphase,
                             fastcns,
-                            visualcn)) \
+                            visualcn,
+                            seeds)) \
         as pool:
             bar = ProgressBar(total=counts['CELL'].nunique(), length=30, verbose=False)
             progress = (lambda e : bar.progress(advance=True, msg="Cell {}".format(e)))
@@ -56,8 +59,8 @@ def calc_cn_rdrs(counts, cn_size, gl_size, issphase, fastcns, maxgap=20, min_fra
         return pd.concat(shared)
     
 
-def init_calc_cn_rdrs(_counts, _allbins, _shared, _cn_size, _gl_size, _maxgap, _min_frac_bins, _min_bins, _issphase, _fastcns, _visualcn):
-    global COUNTS, ALLBINS, SHARED, CN_SIZE, GL_SIZE, MAXGAP, MIN_FRAC_BINS, MIN_BINS, ISSPHASE, FASTCNS, VISUALCN
+def init_calc_cn_rdrs(_counts, _allbins, _shared, _cn_size, _gl_size, _maxgap, _min_frac_bins, _min_bins, _issphase, _fastcns, _visualcn, _seeds):
+    global COUNTS, ALLBINS, SHARED, CN_SIZE, GL_SIZE, MAXGAP, MIN_FRAC_BINS, MIN_BINS, ISSPHASE, FASTCNS, VISUALCN, SEEDS
     COUNTS = _counts
     ALLBINS = _allbins
     SHARED = _shared
@@ -69,6 +72,7 @@ def init_calc_cn_rdrs(_counts, _allbins, _shared, _cn_size, _gl_size, _maxgap, _
     ISSPHASE = _issphase
     FASTCNS = _fastcns
     VISUALCN = _visualcn
+    SEEDS = _seeds
 
 
 def run_calc_cn_rdrs(cell, minrdr=0., maxrdr=3.):
@@ -120,6 +124,7 @@ def run_calc_cn_rdrs(cell, minrdr=0., maxrdr=3.):
         counts['RDR_CN'] = counts['RDR_CN'].where(~pd.isnull(counts['RDR_CN']), counts['RAW_RDR'])
 
     if not VISUALCN:
+        seed_numba_rng(int(SEEDS[cell]))
         counts['RDR_CN'] = counts.groupby('BIN_CNSINF')['RDR_CN'].transform(boot_rdrs_cn,
                                                                             engine='numba',
                                                                             engine_kwargs={'nopython': True, 'nogil': True, 'cache' : True, 'fastmath' : False})

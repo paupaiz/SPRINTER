@@ -3,10 +3,19 @@ from .utils import *
 from numba import jit
 
 
+@jit(nopython=True, cache=True)
+def seed_numba_rng(seed):
+    # np.random calls inside nopython functions use numba's own RNG, which is not
+    # affected by np.random.seed() called from Python; it must be seeded from numba code
+    np.random.seed(seed)
+
+
 
 def calc_rt_rdrs(counts, rt_size, maxgap=20, min_frac_bins=.1, min_bins=4, visual=False, j=1):
     with Manager() as manager:
         shared = manager.list()
+        cells = counts['CELL'].unique()
+        seeds = manager.dict(zip(cells, np.random.randint(0, 2**31 - 1, size=len(cells))))
         with Pool(processes=j, 
                   initializer=init_calc_rt_rdrs, 
                   initargs=(manager.dict({cell : celldf for cell, celldf in counts.groupby('CELL')}),
@@ -15,7 +24,8 @@ def calc_rt_rdrs(counts, rt_size, maxgap=20, min_frac_bins=.1, min_bins=4, visua
                             maxgap,
                             min_frac_bins,
                             min_bins,
-                            visual)) \
+                            visual,
+                            seeds)) \
         as pool:
             bar = ProgressBar(total=counts['CELL'].nunique(), length=30, verbose=False)
             progress = (lambda e : bar.progress(advance=True, msg="Cell {}".format(e)))
@@ -26,8 +36,8 @@ def calc_rt_rdrs(counts, rt_size, maxgap=20, min_frac_bins=.1, min_bins=4, visua
                  .reset_index(drop=True)
     
 
-def init_calc_rt_rdrs(_counts, _shared, _rt_size, _maxgap, _min_frac_bins, _min_bins, _visual):
-    global COUNTS, SHARED, RT_SIZE, MAXGAP, MIN_FRAC_BINS, MIN_BINS, VISUAL
+def init_calc_rt_rdrs(_counts, _shared, _rt_size, _maxgap, _min_frac_bins, _min_bins, _visual, _seeds):
+    global COUNTS, SHARED, RT_SIZE, MAXGAP, MIN_FRAC_BINS, MIN_BINS, VISUAL, SEEDS
     COUNTS = _counts
     SHARED = _shared
     RT_SIZE = _rt_size
@@ -35,6 +45,7 @@ def init_calc_rt_rdrs(_counts, _shared, _rt_size, _maxgap, _min_frac_bins, _min_
     MIN_FRAC_BINS = _min_frac_bins
     MIN_BINS = _min_bins
     VISUAL = _visual
+    SEEDS = _seeds
 
 
 def run_calc_rt_rdrs(cell, minrdr=0., maxrdr=3.):
@@ -63,6 +74,7 @@ def run_calc_rt_rdrs(cell, minrdr=0., maxrdr=3.):
                                                                                       engine_kwargs={'nopython': True, 'nogil': True, 'cache' : True, 'fastmath' : False})
     
     if not VISUAL:
+        seed_numba_rng(int(SEEDS[cell]))
         counts['RAW_RDR'] = counts.groupby('BIN_REPINF')['RAW_RDR'].transform(boot_rdrs_rt,
                                                                             engine='numba',
                                                                             engine_kwargs={'nopython': True, 'nogil': True, 'cache' : True, 'fastmath' : False})
